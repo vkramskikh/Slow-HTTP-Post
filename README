@@ -1,0 +1,18 @@
+This program allows to perform stress tests for slow HTTP POST attacks.
+
+The most of thread/process-based HTTP-servers (e.g. Apache) are vulnerable for
+this type of attack. Slow HTTP POST attacks can be performed by issuing a lof of
+concurrent POST requests, and each of them will send POST body very slowly.
+
+Usage example:
+
+  slow-post.pl --concurrency=50 localhost
+
+A list of all parameters can be obtained by running
+
+  slow-post.pl --help
+
+This program is AnyEvent-based, so you can easily use thousands of concurrent
+connection. Also you can specify your own event loop, for example:
+
+  perl -MEV slow-post.pl localhost

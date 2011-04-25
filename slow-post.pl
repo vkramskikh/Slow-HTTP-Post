@@ -11,7 +11,7 @@ This program allows to perform stress tests for slow HTTP POST attacks
 =head1 LICENSE
 
 This program is free software; you can redistribute it and/or
-modify it under the same terms as Perl itself. See L<perlartistic>.
+modify it under the same terms as Perl itself
 
 =head1 AUTHOR
 
@@ -106,6 +106,7 @@ sub new {
     return bless {
         %params,
         fh => undef,
+        connected => 0,
     }, $class;
 }
 
@@ -124,10 +125,22 @@ sub connect {
     $self->{fh} = new AnyEvent::Handle(
         connect => [$self->{host}, $self->{port}],
         on_error => sub {
-            $self->log("Connection dropped! Sent " . ($self->{body_size} - length $self->{body}) . " of " . $self->{body_size} . " bytes");
+            if ($self->{connected}) {
+                $self->log("Connection dropped, reconnecting (" .
+                           ($self->{body_size} - length $self->{body}) .
+                           " of $self->{body_size} bytes sent)");
+            } else {
+                $self->log("Connection refused, reconnecting");
+            }
+            
             $self->reconnect($self->{connection_delay} * 5);
         },
-        on_eof => sub {$self->reconnect},
+        on_eof => sub {
+            $self->log("Connection closed, reconnecting (" .
+                       ($self->{body_size} - length $self->{body}) .
+                       " of $self->{body_size} bytes sent)");
+            $self->reconnect;
+        },
         on_drain => sub {
             $self->{send_delay_timer} = AnyEvent->timer(
                 after => $self->{body_send_delay},
@@ -135,6 +148,8 @@ sub connect {
             )
         },
         on_connect => sub {
+            $self->{connected} = 1;
+            
             $self->log('Connected! Body size is ' . $self->{body_size});
             
             $self->send_headers;
@@ -145,11 +160,9 @@ sub connect {
 }
 
 sub reconnect {
-    my ($self, $delay) = shift;
+    my ($self, $delay) = @_;
     
     delete $self->{send_delay_timer};
-    
-    $self->log('Reconnecting...');
     
     $self->{reconnection_timer} = AnyEvent->timer(
         after => $delay || $self->{connection_delay},
@@ -178,6 +191,7 @@ sub send_chunk {
     if ($chunk) {
         $self->{fh}->push_write($chunk);
     } else {
+        $self->log("Request completed, reconnecting");
         $self->reconnect;
     }
 }
