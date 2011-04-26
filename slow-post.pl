@@ -163,6 +163,7 @@ sub reconnect {
     my ($self, $delay) = @_;
     
     delete $self->{send_delay_timer};
+    $self->{connected} = 0;
     
     $self->{reconnection_timer} = AnyEvent->timer(
         after => $delay || $self->{connection_delay},
