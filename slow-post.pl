@@ -38,12 +38,14 @@ my $max_body_size = $min_body_size * 4;
 my $body_send_delay = 2;
 my $connection_delay = 1;
 my $user_agent = '';
+my $ssl = 0;
 
 my $help;
 
 my $help_message = <<HELP
 Usage: $0 [options] hostname
 
+  --ssl                     use HTTPS
   --port=NUM                target port number (default: $port)
   --concurrency=NUM         number of concurrent connections (default: $concurrency)
   --min-chunk-size=BYTES    min post body chunk size in bytes (default: $min_chunk_size)
@@ -60,6 +62,7 @@ HELP
 ;
 
 GetOptions(
+    'ssl' => \$ssl,
     'port=i' => \$port,
     'concurrency=i' => \$concurrency,
     'min-chunk-size=i' => \$min_chunk_size,
@@ -86,6 +89,7 @@ foreach my $n (1 .. $concurrency) {
         name => "Client #$n",
         host => $host,
         port => $port,
+        ssl => $ssl,
         path => '/',
         connection_delay => $connection_delay,
         body_send_delay => $body_send_delay,
@@ -156,6 +160,8 @@ sub connect {
             $self->{connected} = 1;
             
             $self->log('Connected! Body size is ' . $self->{body_size});
+            
+            $self->{fh}->starttls('connect') if $self->{ssl};
             
             $self->send_headers;
             $self->send_chunk;
