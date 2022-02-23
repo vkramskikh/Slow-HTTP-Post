@@ -29,6 +29,7 @@ use Getopt::Long;
 
 use AnyEvent;
 use AnyEvent::Handle;
+use AnyEvent::Loop;
 
 my $port = 80;
 my $concurrency = 25;
